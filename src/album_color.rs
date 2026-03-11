@@ -124,7 +124,7 @@ pub fn dominant_album_color(path: Option<&Path>) -> Option<Color> {
     }
 
     if total_weight <= f32::EPSILON {
-        return None;
+        return Some(Color::WHITE);
     }
 
     let r = (sum_r / total_weight).round() as u8;
