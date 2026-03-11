@@ -313,6 +313,7 @@ impl cosmic::Application for Window {
 
         let row_content = Row::new()
             .spacing(pad.0)
+            .padding([0, pad.0])
             .align_y(cosmic::iced::alignment::Vertical::Center)
             .push(icon::from_name(transport_icon).size(size.0))
             .push(
