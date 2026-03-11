@@ -25,6 +25,10 @@ use crate::metadata::{now_playing_from_player, now_playing_snapshot, NowPlayingD
 use crate::player::{album_art_path_from_metadata, playback_state_from_player, with_active_player};
 
 const ID: &str = "com.github.DiegoMMR.CosmicExtAppletNowPlaying";
+const IDLE_RETRY_MIN_MS: u64 = 1000;
+const IDLE_RETRY_MAX_MS: u64 = 5000;
+const ACTIVE_RETRY_MS: u64 = 300;
+const ACTIVE_POLL_MS: u64 = 200;
 
 #[derive(Default)]
 pub struct Window {
@@ -126,13 +130,26 @@ impl cosmic::Application for Window {
                 }
             }
             Message::NowPlayingChanged(data) => {
-                self.now_playing_text = data.text;
-                self.now_playing_title = data.title;
-                self.now_playing_artist = data.artist;
-                self.playback_state = data.state;
-                self.album_color = dominant_album_color(data.album_art_path.as_deref());
-                self.album_art_path = data.album_art_path;
-                self.has_active_media = data.has_active_media;
+                let NowPlayingData {
+                    text,
+                    title,
+                    artist,
+                    state,
+                    album_art_path,
+                    has_active_media,
+                } = data;
+
+                self.now_playing_text = text;
+                self.now_playing_title = title;
+                self.now_playing_artist = artist;
+                self.playback_state = state;
+
+                if self.album_art_path != album_art_path {
+                    self.album_color = dominant_album_color(album_art_path.as_deref());
+                    self.album_art_path = album_art_path;
+                }
+
+                self.has_active_media = has_active_media;
             }
             Message::PreviousTrack => {
                 with_active_player(|player| {
@@ -162,12 +179,14 @@ impl cosmic::Application for Window {
                         let mut last_sent = String::new();
                         let mut last_state = PlaybackState::Unknown;
                         let mut last_art: Option<PathBuf> = None;
+                        let mut idle_retry_ms = IDLE_RETRY_MIN_MS;
 
                         loop {
                             let finder = match PlayerFinder::new() {
                                 Ok(finder) => finder,
                                 Err(_) => {
-                                    std::thread::sleep(Duration::from_millis(1000));
+                                    std::thread::sleep(Duration::from_millis(idle_retry_ms));
+                                    idle_retry_ms = (idle_retry_ms * 2).min(IDLE_RETRY_MAX_MS);
                                     continue;
                                 }
                             };
@@ -196,10 +215,12 @@ impl cosmic::Application for Window {
                                         }
                                     }
 
-                                    std::thread::sleep(Duration::from_millis(1000));
+                                    std::thread::sleep(Duration::from_millis(idle_retry_ms));
+                                    idle_retry_ms = (idle_retry_ms * 2).min(IDLE_RETRY_MAX_MS);
                                     continue;
                                 }
                             };
+                            idle_retry_ms = IDLE_RETRY_MIN_MS;
 
                             let current = now_playing_from_player(&player);
                             let current_state = current.state;
@@ -222,7 +243,7 @@ impl cosmic::Application for Window {
                             let mut events = match player.events() {
                                 Ok(events) => events,
                                 Err(_) => {
-                                    std::thread::sleep(Duration::from_millis(300));
+                                    std::thread::sleep(Duration::from_millis(ACTIVE_RETRY_MS));
                                     continue;
                                 }
                             };
@@ -289,7 +310,7 @@ impl cosmic::Application for Window {
                                 }
                             }
 
-                            std::thread::sleep(Duration::from_millis(200));
+                            std::thread::sleep(Duration::from_millis(ACTIVE_POLL_MS));
                         }
                     });
                 },
